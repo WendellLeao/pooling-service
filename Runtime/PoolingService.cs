@@ -1,0 +1,152 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Pool;
+using WendellLeao.ServiceLocator;
+
+namespace WendellLeao.Pooling
+{
+    /// <summary>
+    /// The PoolingService provides the abstraction <see cref="IPoolingService"/> to get or return objects from any pool.
+    /// <seealso cref="Locator"/>
+    /// </summary>
+    [DisallowMultipleComponent]
+    public sealed class PoolingService : MonoBehaviour, IPoolingService
+    {
+        [SerializeField]
+        private PoolDataCollection poolDataCollection;
+
+        private readonly Dictionary<string, IObjectPool<IPooledObject>> _poolsDictionary = new();
+
+        public bool TryGetObjectFromPool<T>(string poolId, Transform parent, out T result) where T : IPooledObject
+        {
+            IObjectPool<IPooledObject> pool = GetOrCreatePool(poolId);
+
+            IPooledObject pooledObject = pool.Get();
+
+            if (parent)
+            {
+                pooledObject.transform.SetParent(parent, worldPositionStays: false);
+            }
+
+            if (pooledObject is T typed)
+            {
+                result = typed;
+                return true;
+            }
+
+            Debug.LogError($"Pool '{poolId}' returned '{pooledObject.GetType().Name}', which does not implement '{typeof(T).Name}'");
+
+            pool.Release(pooledObject);
+
+            result = default;
+            return false;
+        }
+
+        public void ReleaseObjectToPool(IPooledObject pooledObject)
+        {
+            if (!TryGetObjectPool(pooledObject, out IObjectPool<IPooledObject> pool))
+            {
+                return;
+            }
+
+            pool.Release(pooledObject);
+        }
+
+        private void Awake()
+        {
+            Locator.Register<IPoolingService>(this);
+        }
+
+        private void OnDestroy()
+        {
+            Locator.Unregister<IPoolingService>();
+        }
+
+        private IPooledObject CreateObject(GameObject prefab, string poolId)
+        {
+            GameObject newGameObject = Instantiate(prefab);
+
+            IPooledObject pooledObject = newGameObject.GetComponent<IPooledObject>();
+
+            pooledObject.PoolId = poolId;
+
+            return pooledObject;
+        }
+
+        private void OnGetFromPool(IPooledObject pooledObject)
+        {
+            pooledObject.gameObject.SetActive(true);
+        }
+
+        private void OnReleaseToPool(IPooledObject pooledObject)
+        {
+            pooledObject.gameObject.SetActive(false);
+        }
+
+        private void OnDestroyPooledObject(IPooledObject pooledObject)
+        {
+            Destroy(pooledObject.gameObject);
+        }
+
+        private IObjectPool<IPooledObject> GetOrCreatePool(string poolId)
+        {
+            if (string.IsNullOrEmpty(poolId))
+            {
+                throw new InvalidOperationException("Wasn't possible to get a pooled object because the pool id is null or empty!");
+            }
+
+            if (_poolsDictionary.TryGetValue(poolId, out IObjectPool<IPooledObject> existingPool))
+            {
+                return existingPool;
+            }
+
+            if (!poolDataCollection.TryGetDataById(poolId, out PoolData poolData) || !poolData.Prefab)
+            {
+                throw new InvalidOperationException($"Wasn't possible to create pool '{poolId}' because the prefab is null or missing!");
+            }
+
+            GameObject prefab = poolData.Prefab;
+
+            if (!prefab.TryGetComponent(out IPooledObject _))
+            {
+                throw new InvalidOperationException($"Wasn't possible to create pool '{poolId}' because the prefab '{prefab.name}'" +
+                                                    $"does not implement {nameof(IPooledObject)}!");
+            }
+
+            IObjectPool<IPooledObject> pool = new ObjectPool<IPooledObject>(
+                createFunc: () => CreateObject(prefab, poolId),
+                actionOnGet: OnGetFromPool,
+                actionOnRelease: OnReleaseToPool,
+                actionOnDestroy: OnDestroyPooledObject,
+                collectionCheck: poolData.CollectionCheck,
+                defaultCapacity: poolData.DefaultCapacity,
+                maxSize: poolData.MaxSize
+            );
+
+            _poolsDictionary.Add(poolId, pool);
+
+            return pool;
+        }
+
+        private bool TryGetObjectPool(IPooledObject pooledObject, out IObjectPool<IPooledObject> result)
+        {
+            if (!pooledObject.gameObject)
+            {
+                throw new InvalidOperationException("Wasn't possible to release the object because it is null or destroyed!");
+            }
+
+            if (string.IsNullOrEmpty(pooledObject.PoolId))
+            {
+                throw new InvalidOperationException("Wasn't possible to release the object because it has no PoolId set!");
+            }
+
+            if (!_poolsDictionary.TryGetValue(pooledObject.PoolId, out result))
+            {
+                throw new InvalidOperationException($"Wasn't possible to release the object because pool '{pooledObject.PoolId}' is not registered!");
+            }
+
+            return true;
+        }
+    }
+}

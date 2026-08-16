@@ -1,0 +1,21 @@
+{
+  "name": "com.wendellleao.poolingservice",
+  "version": "1.0.0",
+  "displayName": "Pooling Service",
+  "description": "Generic component-based object pooling service for Unity projects.",
+  "unity": "6000.3",
+  "license": "MIT",
+  "author": {
+    "name": "Wendell Leão",
+    "email": "leaowendell@outlook.com",
+    "url": "https://github.com/WendellLeao"
+  },
+  "keywords": [
+    "pooling",
+    "object pool",
+    "performance"
+  ],
+  "dependencies": {
+    "com.wendellleao.servicelocator": "https://github.com/WendellLeao/service-locator.git"
+  }
+}
